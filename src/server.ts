@@ -9,6 +9,7 @@ import { registerInvoiceTools } from "./tools/invoices.js";
 import { registerKsefTools } from "./tools/ksef.js";
 import { registerOrderTools } from "./tools/orders.js";
 import { registerPaymentTools } from "./tools/payments.js";
+import { registerReceiptTools } from "./tools/receipts.js";
 
 const SERVER_INSTRUCTIONS = `You are connected to the iFirma.pl accounting API — a Polish online bookkeeping platform for small businesses (JDG).
 
@@ -70,11 +71,14 @@ They do NOT use line items (Pozycje). Sales invoices use Pozycje, expenses use f
 
 ## Important notes
 - list_invoices requires dateFrom (dataOd). Always provide a start date.
+- get_invoice and download_invoice_pdf accept a numeric ID or a number with slashes (1/8/2026 → 1_8_2026).
+- iFirma's public API does **not** list expenses. Book costs with create_*_expense, then get_expense by the returned ID.
 - Contractor search returns max 20 results.
-- Invoice numbers use slashes (e.g. "A2/2/2026"). When used in payment URLs, slashes become underscores.
+- Invoice numbers use slashes (e.g. "A2/2/2026"). When used in URLs, slashes become underscores.
 - update_contractor requires ALL fields — omitted fields get deleted. Always fetch first with get_contractor.
 - Correction invoices use the original invoice ID in the URL path, not in the body.
 - EU VAT rates are queried per country code (ISO 3166-1 alpha-2). Greece uses EL.
+- set_accounting_month only moves next/previous (NAST/POPRZ); it cannot jump to an arbitrary month.
 - KSeF = Krajowy System e-Faktur (Poland's national e-invoicing system).
 - Full API docs: https://api.ifirma.pl/
 `;
@@ -98,6 +102,10 @@ export function createServer(config: Config) {
 
 	if (config.keys.wydatek) {
 		registerExpenseTools(server, client);
+	}
+
+	if (config.keys.rachunek) {
+		registerReceiptTools(server, client);
 	}
 
 	if (config.keys.abonent) {

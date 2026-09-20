@@ -71,18 +71,26 @@ Run via `npx -y ifirma-mcp-server` with the environment variables below.
 
 | Tool | Description |
 |---|---|
-| `list_invoices` | List issued invoices with filters |
+| `list_invoices` | List issued invoices with filters (date, type, status, amount, contractor) |
+| `get_invoice` | Full invoice/receipt JSON by ID or number |
+| `download_invoice_pdf` | Download invoice PDF (save to disk or return base64) |
 | `create_domestic_invoice` | Domestic VAT invoice |
 | `create_domestic_invoice_non_vat` | Domestic invoice for non-VAT payers |
-| `create_proforma` | Proforma invoice |
+| `create_proforma` | Proforma invoice (optional order number) |
+| `create_shipment_invoice` | Shipment invoice (faktura wysyłkowa) |
 | `create_export_invoice` | Export invoice |
 | `create_wdt_invoice` | Intra-community supply (WDT) invoice |
 | `create_eu_service_invoice` | EU service invoice (art. 28b) |
+| `create_out_of_country_service_invoice` | Services performed outside Poland |
 | `create_foreign_currency_invoice` | Foreign currency invoice |
 | `create_correction_invoice` | Correction invoice |
 | `create_receipt_invoice` | Receipt invoice (faktura do paragonu) |
 | `create_oss_invoice` | One Stop Shop invoice |
+| `create_oss_sales_proof` | OSS sales proof (no contractor) |
 | `create_ioss_invoice` | Import One Stop Shop invoice |
+| `create_export_proforma` | Proforma for export / WDT / EU service |
+| `convert_proforma_to_invoice` | Issue a domestic invoice from a proforma |
+| `find_invoices_by_order` | Find proformas/invoices by order number |
 | `send_invoice_email` | Send invoice by email |
 | `send_invoice_post` | Send invoice via postal mail |
 | `send_invoice_ksef` | Submit invoice to KSeF |
@@ -116,6 +124,15 @@ Run via `npx -y ifirma-mcp-server` with the environment variables below.
 | `create_goods_purchase_expense` | Goods/materials purchase |
 | `create_other_cost_expense` | Non-invoice cost (receipt, contract, etc.) |
 | `create_telecom_expense` | Phone/internet expense |
+| `get_expense` | Fetch a booked expense by ID |
+
+The public iFirma API can **create** expenses but cannot **list** cost invoices. After booking, use the ID returned by the create tool with `get_expense`.
+
+### Receipts (`rachunek` key)
+
+| Tool | Description |
+|---|---|
+| `create_domestic_receipt` | Domestic sales receipt (rachunek). List via `list_invoices` type `rachunek`. |
 
 ### Account (`abonent` key)
 
@@ -130,6 +147,7 @@ Run via `npx -y ifirma-mcp-server` with the environment variables below.
 | Tool | Description |
 |---|---|
 | `create_order` | Create e-commerce order |
+| `update_order` | Update an existing e-commerce order |
 
 ### HR (`abonent` key)
 

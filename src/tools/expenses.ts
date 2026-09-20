@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { IfirmaClient } from "../client/api.js";
 import { resolveContractor } from "../utils/contractor.js";
 import { wrapToolHandler } from "../utils/errors.js";
+import { EXPENSE_PREFIXES, normalizeDocumentId } from "./document.js";
 
 const contractorFields = {
 	contractorIdentifier: z
@@ -65,6 +66,14 @@ const vatExpenseSchema = {
 		.enum(["NUMER", "OFF", "BFK", "DI"])
 		.default("OFF")
 		.describe("KSeF marking: NUMER, OFF, BFK, DI"),
+	ksefNumber: z
+		.string()
+		.optional()
+		.describe("KSeF number — required when ksefMarking is NUMER"),
+	ksefOffline24: z
+		.boolean()
+		.optional()
+		.describe("Mark the invoice as issued in KSeF Offline24 mode"),
 	...contractorFields,
 };
 
@@ -84,6 +93,8 @@ export function buildVatExpenseBody(input: {
 	nettoZw: number;
 	salesType: string;
 	ksefMarking: string;
+	ksefNumber?: string;
+	ksefOffline24?: boolean;
 	contractorIdentifier?: string;
 	contractorNip?: string;
 	contractor?: {
@@ -112,6 +123,10 @@ export function buildVatExpenseBody(input: {
 	if (input.vat05 !== undefined) body.KwotaVat05 = input.vat05;
 	if (input.receiptDate) body.DataWplywu = input.receiptDate;
 	if (input.paymentDeadline) body.TerminPlatnosci = input.paymentDeadline;
+	if (input.ksefNumber) body.NumerKSeF = input.ksefNumber;
+	if (input.ksefOffline24 !== undefined) {
+		body.Offline24KSeF = input.ksefOffline24;
+	}
 
 	return body;
 }
@@ -220,6 +235,14 @@ export function registerExpenseTools(server: McpServer, client: IfirmaClient) {
 				.enum(["OP", "ZW", "OPIZW"])
 				.default("OP")
 				.describe("Sales type"),
+			ksefMarking: z
+				.enum(["NUMER", "OFF", "BFK", "DI"])
+				.default("OFF")
+				.describe("KSeF marking"),
+			ksefNumber: z
+				.string()
+				.optional()
+				.describe("KSeF number when ksefMarking is NUMER"),
 			...contractorFields,
 		},
 		(input) =>
@@ -235,8 +258,32 @@ export function registerExpenseTools(server: McpServer, client: IfirmaClient) {
 						KwotaNetto23: input.netto23,
 						...(input.vat23 !== undefined && { KwotaVat23: input.vat23 }),
 						RodzajSprzedazy: input.salesType,
+						OznaczenieKSeF: input.ksefMarking,
+						...(input.ksefNumber && { NumerKSeF: input.ksefNumber }),
 						...resolveContractor(input),
 					},
+				}),
+			),
+	);
+
+	server.tool(
+		"get_expense",
+		"Get a booked expense by ID. Type: cost (koszt działalności VAT), goods (zakup towaru), other (non-invoice), telecom. iFirma's public API does not expose an expense list — only fetch by ID returned from create_*_expense.",
+		{
+			id: z
+				.union([z.string(), z.number()])
+				.describe("Expense ID returned when the expense was booked"),
+			expenseType: z
+				.enum(["cost", "goods", "other", "telecom"])
+				.default("cost")
+				.describe("Expense document type"),
+		},
+		(input) =>
+			wrapToolHandler(() =>
+				client.request({
+					method: "GET",
+					path: `${EXPENSE_PREFIXES[input.expenseType]}/${normalizeDocumentId(input.id)}.json`,
+					keyName: "wydatek",
 				}),
 			),
 	);

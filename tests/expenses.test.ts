@@ -123,6 +123,18 @@ describe("buildVatExpenseBody", () => {
 		expect(body.Kontrahent).toBeUndefined();
 	});
 
+	it("includes KSeF number and Offline24 when provided", () => {
+		const body = buildVatExpenseBody({
+			...baseInput,
+			ksefMarking: "NUMER",
+			ksefNumber: "1234567890-20260101-ABCDEFGH-00",
+			ksefOffline24: true,
+		});
+		expect(body.OznaczenieKSeF).toBe("NUMER");
+		expect(body.NumerKSeF).toBe("1234567890-20260101-ABCDEFGH-00");
+		expect(body.Offline24KSeF).toBe(true);
+	});
+
 	it("handles multiple VAT rate brackets", () => {
 		const body = buildVatExpenseBody({
 			...baseInput,

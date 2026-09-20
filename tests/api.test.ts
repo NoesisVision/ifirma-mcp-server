@@ -111,19 +111,19 @@ describe("IfirmaClient", () => {
 		).rejects.toThrow(IfirmaApiError);
 	});
 
-	it("returns dry-run response when IFIRMA_DRY_RUN is set", async () => {
+	it("returns dry-run binary payload when IFIRMA_DRY_RUN is set", async () => {
 		process.env.IFIRMA_DRY_RUN = "true";
 
 		const client = new IfirmaClient(config);
-		const result = await client.request<Record<string, unknown>>({
+		const result = await client.requestBinary({
 			method: "GET",
-			path: "test.json",
+			path: "fakturakraj/1.pdf",
 			keyName: "faktura",
+			accept: "application/pdf",
 		});
 
-		expect(result._dryRun).toBe(true);
-		expect(result.method).toBe("GET");
-		expect(result.url).toContain("test.json");
+		expect(result.contentType).toBe("application/json");
+		expect(JSON.parse(result.buffer.toString())._dryRun).toBe(true);
 
 		process.env.IFIRMA_DRY_RUN = undefined;
 	});

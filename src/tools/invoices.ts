@@ -1,26 +1,18 @@
+import { writeFile } from "node:fs/promises";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { IfirmaClient } from "../client/api.js";
 import { wrapToolHandler } from "../utils/errors.js";
+import {
+	DOCUMENT_TYPE_VALUES,
+	LIST_TYPE_MAP,
+	LIST_TYPE_VALUES,
+	documentPrefix,
+	keyForDocumentType,
+	normalizeDocumentId,
+} from "./document.js";
 
-export const LIST_TYPE_MAP: Record<string, string> = {
-	krajowa: "prz_faktura_kraj",
-	eksport: "prz_eksport_towarow",
-	wdt: "prz_dostawa_ue_towarow",
-	eu_service: "prz_eksport_dost_uslug_ue",
-	paragon: "prz_faktura_paragon",
-	waluta: "prz_faktura_wys_ter_kraj",
-};
-
-const SEND_TYPE_MAP: Record<string, string> = {
-	krajowa: "fakturakraj",
-	wysylka: "fakturawysylka",
-	proforma: "fakturaproformakraj",
-	eksport: "fakturaeksporttowarow",
-	wdt: "fakturawdt",
-	eu_service: "fakturaeksportuslugue",
-	waluta: "fakturawaluta",
-};
+export { LIST_TYPE_MAP };
 
 export function buildInvoiceItem(item: {
 	name: string;
@@ -168,17 +160,15 @@ const domesticInvoiceSchema = {
 };
 
 const sendInvoiceTypeSchema = z
-	.enum([
-		"krajowa",
-		"wysylka",
-		"proforma",
-		"eksport",
-		"wdt",
-		"eu_service",
-		"waluta",
-	])
+	.enum(DOCUMENT_TYPE_VALUES)
 	.default("krajowa")
-	.describe("Invoice type (determines the send endpoint)");
+	.describe("Document type (determines the API path prefix)");
+
+const documentIdSchema = z
+	.union([z.string(), z.number()])
+	.describe(
+		"Document ID from create response, or full number with slashes (e.g. 1/8/2026)",
+	);
 
 export function registerInvoiceTools(server: McpServer, client: IfirmaClient) {
 	server.tool(
@@ -191,16 +181,7 @@ export function registerInvoiceTools(server: McpServer, client: IfirmaClient) {
 				.optional()
 				.describe("End date (YYYY-MM-DD) — defaults to 30 days from dateFrom"),
 			type: z
-				.enum([
-					"all",
-					"krajowa",
-					"proforma",
-					"eksport",
-					"wdt",
-					"eu_service",
-					"paragon",
-					"waluta",
-				])
+				.enum(LIST_TYPE_VALUES)
 				.default("all")
 				.describe("Invoice type filter"),
 			status: z
@@ -222,6 +203,18 @@ export function registerInvoiceTools(server: McpServer, client: IfirmaClient) {
 				.default(20)
 				.describe("Results per page"),
 			contractorNip: z.string().optional().describe("Filter by contractor NIP"),
+			contractorId: z
+				.string()
+				.optional()
+				.describe("Filter by contractor identifier (kontrahent)"),
+			amountFrom: z
+				.number()
+				.optional()
+				.describe("Minimum gross amount (kwotaOd)"),
+			amountTo: z
+				.number()
+				.optional()
+				.describe("Maximum gross amount (kwotaDo)"),
 		},
 		(input) =>
 			wrapToolHandler(() => {
@@ -239,6 +232,15 @@ export function registerInvoiceTools(server: McpServer, client: IfirmaClient) {
 				}
 				if (input.contractorNip) {
 					params.nipKontrahenta = input.contractorNip;
+				}
+				if (input.contractorId) {
+					params.kontrahent = input.contractorId;
+				}
+				if (input.amountFrom !== undefined) {
+					params.kwotaOd = String(input.amountFrom);
+				}
+				if (input.amountTo !== undefined) {
+					params.kwotaDo = String(input.amountTo);
 				}
 				const path =
 					input.type === "proforma" ? "proformy.json" : "faktury.json";
@@ -269,23 +271,38 @@ export function registerInvoiceTools(server: McpServer, client: IfirmaClient) {
 	server.tool(
 		"create_proforma",
 		"Create a new proforma invoice. Same structure as domestic invoice but posted as proforma. Requires issue date, payment deadline, at least one line item, and contractor info.",
-		domesticInvoiceSchema,
+		{
+			...domesticInvoiceSchema,
+			domesticType: z
+				.enum(["SPRZ", "BUD", "ZAL"])
+				.default("SPRZ")
+				.describe(
+					"Underlying domestic invoice type: SPRZ (sale), BUD (construction), ZAL (advance)",
+				),
+			orderNumber: z
+				.string()
+				.optional()
+				.describe("Related order number (NumerZamowienia, max 30 chars)"),
+		},
 		(input) =>
-			wrapToolHandler(() =>
-				client.request({
+			wrapToolHandler(() => {
+				const body = buildInvoiceBody(input);
+				body.TypFakturyKrajowej = input.domesticType;
+				if (input.orderNumber) body.NumerZamowienia = input.orderNumber;
+				return client.request({
 					method: "POST",
-					path: "fakturaproforma.json",
+					path: "fakturaproformakraj.json",
 					keyName: "faktura",
-					body: buildInvoiceBody(input),
-				}),
-			),
+					body,
+				});
+			}),
 	);
 
 	server.tool(
 		"send_invoice_email",
 		"Send an issued invoice by email to the specified address.",
 		{
-			id: z.number().positive().describe("Invoice ID"),
+			id: documentIdSchema,
 			invoiceType: sendInvoiceTypeSchema,
 			email: z.string().describe("Recipient email address"),
 			message: z
@@ -299,11 +316,11 @@ export function registerInvoiceTools(server: McpServer, client: IfirmaClient) {
 					SkrzynkaEmailOdbiorcy: input.email,
 				};
 				if (input.message) body.Tekst = input.message;
-				const prefix = SEND_TYPE_MAP[input.invoiceType] || "fakturakraj";
+				const prefix = documentPrefix(input.invoiceType);
 				return client.request({
 					method: "POST",
-					path: `${prefix}/send/${input.id}.json`,
-					keyName: "faktura",
+					path: `${prefix}/send/${normalizeDocumentId(input.id)}.json`,
+					keyName: keyForDocumentType(input.invoiceType),
 					body,
 				});
 			}),
@@ -531,18 +548,267 @@ export function registerInvoiceTools(server: McpServer, client: IfirmaClient) {
 		"send_invoice_post",
 		"Send an invoice via traditional mail (Poczta Polska) through iFirma's mailing service.",
 		{
-			id: z.number().positive().describe("Invoice ID"),
+			id: documentIdSchema,
 			invoiceType: sendInvoiceTypeSchema,
 		},
 		(input) =>
 			wrapToolHandler(() => {
-				const prefix = SEND_TYPE_MAP[input.invoiceType] || "fakturakraj";
+				const prefix = documentPrefix(input.invoiceType);
 				return client.request({
 					method: "POST",
-					path: `${prefix}/send/${input.id}.json`,
-					keyName: "faktura",
+					path: `${prefix}/send/${normalizeDocumentId(input.id)}.json`,
+					keyName: keyForDocumentType(input.invoiceType),
 					params: { wyslijPoczta: "true" },
 					body: {},
+				});
+			}),
+	);
+
+	server.tool(
+		"get_invoice",
+		"Get full details of an issued invoice or receipt (JSON). Use invoice type to pick the correct endpoint. Accepts numeric ID or number with slashes (e.g. 1/8/2026).",
+		{
+			id: documentIdSchema,
+			invoiceType: sendInvoiceTypeSchema,
+		},
+		(input) =>
+			wrapToolHandler(() =>
+				client.request({
+					method: "GET",
+					path: `${documentPrefix(input.invoiceType)}/${normalizeDocumentId(input.id)}.json`,
+					keyName: keyForDocumentType(input.invoiceType),
+				}),
+			),
+	);
+
+	server.tool(
+		"download_invoice_pdf",
+		"Download an invoice or receipt as PDF. Provide outputPath to save on disk; otherwise returns base64. Use duplicate=true for a duplicate copy dated today.",
+		{
+			id: documentIdSchema,
+			invoiceType: sendInvoiceTypeSchema,
+			outputPath: z
+				.string()
+				.optional()
+				.describe("Filesystem path to write the PDF (recommended)"),
+			duplicate: z
+				.boolean()
+				.default(false)
+				.describe("If true, download a duplicate (typ=dup)"),
+			printLanguage: z
+				.enum(["polski", "obcy"])
+				.optional()
+				.describe("Print language for bilingual invoices (OSS/export)"),
+		},
+		(input) =>
+			wrapToolHandler(async () => {
+				const params: Record<string, string> = {};
+				if (input.duplicate) params.typ = "dup";
+				if (input.printLanguage) params.jezykWydruku = input.printLanguage;
+				const result = await client.requestBinary({
+					method: "GET",
+					path: `${documentPrefix(input.invoiceType)}/${normalizeDocumentId(input.id)}.pdf`,
+					keyName: keyForDocumentType(input.invoiceType),
+					params: Object.keys(params).length ? params : undefined,
+					accept: "application/pdf",
+				});
+				if (input.outputPath) {
+					await writeFile(input.outputPath, result.buffer);
+					return {
+						savedTo: input.outputPath,
+						bytes: result.buffer.length,
+						contentType: result.contentType,
+					};
+				}
+				return {
+					filename: `${normalizeDocumentId(input.id)}.pdf`,
+					contentType: result.contentType,
+					bytes: result.buffer.length,
+					base64: result.buffer.toString("base64"),
+				};
+			}),
+	);
+
+	server.tool(
+		"create_shipment_invoice",
+		"Create a shipment invoice (faktura wysyłkowa). Same line items as a domestic invoice, plus payment-received date. Posted to fakturawysylka.json.",
+		{
+			...domesticInvoiceSchema,
+			paymentReceivedDate: z
+				.string()
+				.describe("Date payment was received (YYYY-MM-DD)"),
+			amountPaid: z
+				.number()
+				.default(0)
+				.describe("Amount already paid (Zaplacono)"),
+		},
+		(input) =>
+			wrapToolHandler(() => {
+				const body = buildInvoiceBody(input);
+				body.DataOtrzymaniaZaplaty = input.paymentReceivedDate;
+				body.Zaplacono = input.amountPaid;
+				return client.request({
+					method: "POST",
+					path: "fakturawysylka.json",
+					keyName: "faktura",
+					body,
+				});
+			}),
+	);
+
+	server.tool(
+		"create_out_of_country_service_invoice",
+		"Create an invoice for services provided outside Poland (świadczenie usług poza terytorium kraju). Posted to fakturaeksportuslug.json.",
+		{
+			...domesticInvoiceSchema,
+			serviceName: z.string().describe("Service name shown on the invoice"),
+			language: z
+				.string()
+				.default("en")
+				.describe("Invoice language code (en, de, fr, ...)"),
+			currency: z
+				.string()
+				.default("PLN")
+				.describe("Currency (PLN for this tool)"),
+			taxPointDate: z
+				.string()
+				.optional()
+				.describe(
+					"Tax obligation date (DataObowiazkuPodatkowego), defaults to issueDate",
+				),
+			article28b: z
+				.boolean()
+				.default(false)
+				.describe("Whether the service is under VAT Act art. 28b"),
+			foreignItemName: z
+				.string()
+				.optional()
+				.describe("Foreign-language name for line items if not set per item"),
+			foreignUnit: z
+				.string()
+				.default("pcs")
+				.describe("Foreign-language unit for line items"),
+		},
+		(input) =>
+			wrapToolHandler(() => {
+				const body = buildInvoiceBody(input);
+				body.NazwaUslugi = input.serviceName;
+				body.UslugaSwiadczonaTrybArt28b = input.article28b;
+				body.Jezyk = input.language;
+				body.Waluta = input.currency;
+				body.DataObowiazkuPodatkowego = input.taxPointDate || input.issueDate;
+				const pozycje = body.Pozycje as Array<Record<string, unknown>>;
+				for (const item of pozycje) {
+					item.NazwaPelnaObca = input.foreignItemName || item.NazwaPelna;
+					item.JednostkaObca = input.foreignUnit;
+				}
+				return client.request({
+					method: "POST",
+					path: "fakturaeksportuslug.json",
+					keyName: "faktura",
+					body,
+				});
+			}),
+	);
+
+	server.tool(
+		"create_export_proforma",
+		"Create an export/WDT/EU-service proforma (POST fakturaproformaeksport.json).",
+		{
+			...domesticInvoiceSchema,
+			invoiceKind: z
+				.enum([
+					"prz_eksport_towarow",
+					"prz_dostawa_ue_towarow",
+					"prz_eksport_dost_uslug_ue",
+					"prz_eksport_dost_uslug_nie_ue",
+					"prz_faktura_wys_ter_kraj",
+				])
+				.describe("Underlying invoice type this proforma is for"),
+		},
+		(input) =>
+			wrapToolHandler(() => {
+				const body = buildInvoiceBody(input);
+				body.TypFaktury = input.invoiceKind;
+				return client.request({
+					method: "POST",
+					path: "fakturaproformaeksport.json",
+					keyName: "faktura",
+					body,
+				});
+			}),
+	);
+
+	server.tool(
+		"convert_proforma_to_invoice",
+		"Issue a domestic sales invoice from an existing proforma (GET fakturaproformakraj/add/{id}.json).",
+		{
+			id: documentIdSchema,
+		},
+		(input) =>
+			wrapToolHandler(() =>
+				client.request({
+					method: "GET",
+					path: `fakturaproformakraj/add/${normalizeDocumentId(input.id)}.json`,
+					keyName: "faktura",
+				}),
+			),
+	);
+
+	server.tool(
+		"find_invoices_by_order",
+		"Find proformas and related invoices by order number (NumerZamowienia). Only works for documents created via API.",
+		{
+			orderNumber: z
+				.string()
+				.describe("Order number used when creating the proforma"),
+		},
+		(input) =>
+			wrapToolHandler(() =>
+				client.request({
+					method: "GET",
+					path: `fakturaproformakraj/find/${encodeURIComponent(input.orderNumber)}.json`,
+					keyName: "faktura",
+				}),
+			),
+	);
+
+	server.tool(
+		"create_oss_sales_proof",
+		"Create an OSS sales proof (dowód sprzedaży OSS) — same as an OSS invoice but without contractor data.",
+		{
+			...domesticInvoiceSchema,
+			deliveryCountry: z
+				.string()
+				.describe("ISO country code of delivery (e.g. DE, CY)"),
+			dispatchCountry: z
+				.string()
+				.default("PL")
+				.describe("ISO country code of dispatch"),
+			language: z.string().default("en").describe("Invoice language code"),
+			currency: z.string().default("PLN").describe("Currency code"),
+			isService: z
+				.boolean()
+				.default(false)
+				.describe("True if selling services rather than goods"),
+		},
+		(input) =>
+			wrapToolHandler(() => {
+				const body: Record<string, unknown> = {
+					...buildInvoiceBody(input),
+					Kontrahent: undefined,
+					KrajDostawy: input.deliveryCountry,
+					KrajWysylki: input.dispatchCountry,
+					Jezyk: input.language,
+					Waluta: input.currency,
+					SprzedazUslug: input.isService,
+					WidocznyNumerBdo: false,
+				};
+				return client.request({
+					method: "POST",
+					path: "fakturaoss.json",
+					keyName: "faktura",
+					body,
 				});
 			}),
 	);

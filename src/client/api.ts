@@ -8,6 +8,12 @@ interface ApiRequestOptions {
 	keyName: KeyName;
 	body?: Record<string, unknown>;
 	params?: Record<string, string>;
+	accept?: string;
+}
+
+export interface BinaryResponse {
+	contentType: string;
+	buffer: Buffer;
 }
 
 export class IfirmaClient {
@@ -36,7 +42,7 @@ export class IfirmaClient {
 		const headers: Record<string, string> = {
 			Authentication: auth,
 			"Content-Type": "application/json; charset=utf-8",
-			Accept: "application/json",
+			Accept: options.accept || "application/json",
 		};
 
 		if (this.dryRun) {
@@ -61,6 +67,58 @@ export class IfirmaClient {
 		}
 
 		return response.json() as Promise<T>;
+	}
+
+	async requestBinary(options: ApiRequestOptions): Promise<BinaryResponse> {
+		const url = new URL(`${BASE_URL}/${options.path}`);
+		if (options.params) {
+			for (const [key, value] of Object.entries(options.params)) {
+				url.searchParams.set(key, value);
+			}
+		}
+
+		const body = options.body ? JSON.stringify(options.body) : "";
+		const auth = computeAuthHeader(
+			this.config,
+			options.keyName,
+			url.toString(),
+			body,
+		);
+
+		const headers: Record<string, string> = {
+			Authentication: auth,
+			"Content-Type": "application/json; charset=utf-8",
+			Accept: options.accept || "application/pdf",
+		};
+
+		if (this.dryRun) {
+			return {
+				contentType: "application/json",
+				buffer: Buffer.from(
+					JSON.stringify({
+						_dryRun: true,
+						method: options.method,
+						url: url.toString(),
+					}),
+				),
+			};
+		}
+
+		const response = await fetch(url.toString(), {
+			method: options.method,
+			headers,
+			body: options.method !== "GET" ? body : undefined,
+		});
+
+		if (!response.ok) {
+			const errorBody = await response.text();
+			throw new IfirmaApiError(response.status, errorBody, options.path);
+		}
+
+		return {
+			contentType: response.headers.get("content-type") || "application/pdf",
+			buffer: Buffer.from(await response.arrayBuffer()),
+		};
 	}
 }
 

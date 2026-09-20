@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { IfirmaClient } from "../client/api.js";
 import { wrapToolHandler } from "../utils/errors.js";
+import { PAYMENT_TYPE_VALUES, normalizeDocumentId } from "./document.js";
 
 export function registerPaymentTools(server: McpServer, client: IfirmaClient) {
 	server.tool(
@@ -14,16 +15,9 @@ export function registerPaymentTools(server: McpServer, client: IfirmaClient) {
 					"Full invoice number (e.g. 'A2/2/2026') — slashes are auto-replaced with underscores",
 				),
 			invoiceType: z
-				.enum([
-					"prz_faktura_kraj",
-					"prz_faktura_wysylka",
-					"prz_faktura_paragon",
-					"prz_dostawa_ue_towarow",
-					"prz_eksport_towarow",
-					"prz_eksport_dost_uslug_ue",
-				])
+				.enum(PAYMENT_TYPE_VALUES)
 				.default("prz_faktura_kraj")
-				.describe("Invoice type"),
+				.describe("Invoice type used in the payment URL"),
 			amount: z.number().min(0).describe("Payment amount"),
 			paymentDate: z
 				.string()
@@ -46,7 +40,7 @@ export function registerPaymentTools(server: McpServer, client: IfirmaClient) {
 		},
 		(input) =>
 			wrapToolHandler(() => {
-				const numer = input.invoiceNumber.replace(/\//g, "_");
+				const numer = normalizeDocumentId(input.invoiceNumber);
 				const body: Record<string, unknown> = { Kwota: input.amount };
 				if (input.paymentDate) body.Data = input.paymentDate;
 				if (input.amountPln !== undefined) body.KwotaPln = input.amountPln;

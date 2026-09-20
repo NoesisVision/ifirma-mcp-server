@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { IfirmaClient } from "../client/api.js";
 import { wrapToolHandler } from "../utils/errors.js";
+import { accountingMonthBody } from "./document.js";
 
 export function registerVatRateTools(server: McpServer, client: IfirmaClient) {
 	server.tool(
@@ -34,13 +35,13 @@ export function registerVatRateTools(server: McpServer, client: IfirmaClient) {
 export function registerAccountTools(server: McpServer, client: IfirmaClient) {
 	server.tool(
 		"get_accounting_month",
-		"Get the currently set accounting month (miesiąc księgowy). Returns the active month and year for bookkeeping operations.",
+		"Get the currently set accounting month (miesiąc księgowy). Returns RokKsiegowy and MiesiacKsiegowy.",
 		{},
 		() =>
 			wrapToolHandler(() =>
 				client.request({
 					method: "GET",
-					path: "miesiac-ksiegowy.json",
+					path: "abonent/miesiacksiegowy.json",
 					keyName: "abonent",
 				}),
 			),
@@ -48,21 +49,28 @@ export function registerAccountTools(server: McpServer, client: IfirmaClient) {
 
 	server.tool(
 		"set_accounting_month",
-		"Change the active accounting month. This affects which month new invoices and expenses are booked to.",
+		"Move the active accounting month forward (NAST) or backward (POPRZ). iFirma does not accept an arbitrary month/year — only next/previous. Use carryForwardPreviousYear when crossing into a new year.",
 		{
-			month: z.number().min(1).max(12).describe("Month number (1-12)"),
-			year: z.number().min(2000).max(2100).describe("Year (e.g. 2026)"),
+			direction: z
+				.enum(["next", "previous"])
+				.describe("Move to the next or previous accounting month"),
+			carryForwardPreviousYear: z
+				.boolean()
+				.default(false)
+				.describe(
+					"PrzeniesDaneZPoprzedniegoRoku — copy data when entering a new year",
+				),
 		},
 		(input) =>
 			wrapToolHandler(() =>
 				client.request({
 					method: "PUT",
-					path: "miesiac-ksiegowy.json",
+					path: "abonent/miesiacksiegowy.json",
 					keyName: "abonent",
-					body: {
-						MiesiacKsiegowy: input.month,
-						RokKsiegowy: input.year,
-					},
+					body: accountingMonthBody(
+						input.direction,
+						input.carryForwardPreviousYear,
+					),
 				}),
 			),
 	);

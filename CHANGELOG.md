@@ -1,3 +1,21 @@
+## [Unreleased]
+
+### Added
+
+- `get_invoice` and `download_invoice_pdf` (JSON/PDF by ID or number)
+- Broader `list_invoices` types plus amount and contractor filters
+- `create_shipment_invoice`, `create_out_of_country_service_invoice`, `create_export_proforma`, `create_oss_sales_proof`
+- `convert_proforma_to_invoice`, `find_invoices_by_order`
+- `create_domestic_receipt` (rachunek key)
+- `get_expense` by ID; KSeF number / Offline24 on expense create
+- `update_order`
+- Expanded payment and KSeF invoice types
+
+### Fixed
+
+- Accounting month now uses `abonent/miesiacksiegowy.json` (previous path 404'd)
+- `set_accounting_month` matches the API (next/previous only)
+
 # 1.0.0 (2026-03-11)
 
 

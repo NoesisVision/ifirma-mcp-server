@@ -12,6 +12,10 @@ describe("LIST_TYPE_MAP", () => {
 		expect(LIST_TYPE_MAP.eu_service).toBe("prz_eksport_dost_uslug_ue");
 		expect(LIST_TYPE_MAP.paragon).toBe("prz_faktura_paragon");
 		expect(LIST_TYPE_MAP.waluta).toBe("prz_faktura_wys_ter_kraj");
+		expect(LIST_TYPE_MAP.wysylka).toBe("prz_faktura_wysylka");
+		expect(LIST_TYPE_MAP.out_of_country).toBe("prz_eksport_dost_uslug_nie_ue");
+		expect(LIST_TYPE_MAP.rachunek).toBe("prz_rachunek_kraj");
+		expect(LIST_TYPE_MAP.zaliczkowa).toBe("prz_faktura_zal");
 	});
 });
 

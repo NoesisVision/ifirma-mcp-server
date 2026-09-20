@@ -75,4 +75,66 @@ export function registerOrderTools(server: McpServer, client: IfirmaClient) {
 				});
 			}),
 	);
+
+	server.tool(
+		"update_order",
+		"Update an existing e-commerce order. Identification is by order id. Same payload as create_order (PUT).",
+		{
+			orderId: z.string().describe("Unique order identifier (max 40 chars)"),
+			status: z.string().describe("Order status (max 100 chars)"),
+			created: z
+				.string()
+				.describe("Creation timestamp (yyyy-MM-ddTHH:mm:ss.SSS)"),
+			currency: z.string().describe("ISO 4217 currency code (e.g. PLN, EUR)"),
+			shippingTotal: z.number().describe("Shipping cost"),
+			productsTotalNet: z
+				.number()
+				.describe("Products total net (before shipping)"),
+			paymentMethod: z.string().optional().describe("Payment method name"),
+			items: z
+				.array(
+					z.object({
+						name: z.string().describe("Product name"),
+						quantity: z.number().describe("Quantity"),
+						price: z.number().describe("Unit price"),
+						tax: z.number().optional().describe("Tax amount"),
+						taxPercent: z.number().optional().describe("Tax percentage"),
+						sku: z.string().optional().describe("SKU code"),
+					}),
+				)
+				.min(1)
+				.describe("Order line items"),
+			billing: addressSchema
+				.extend({
+					nip: z.string().optional(),
+					email: z.string().optional(),
+					phone: z.string().optional(),
+				})
+				.optional()
+				.describe("Billing address"),
+			shipping: addressSchema.optional().describe("Shipping address"),
+		},
+		(input) =>
+			wrapToolHandler(() => {
+				const body: Record<string, unknown> = {
+					id: input.orderId,
+					status: input.status,
+					created: input.created,
+					currency: input.currency,
+					shippingTotal: input.shippingTotal,
+					productsTotalNet: input.productsTotalNet,
+					items: input.items,
+				};
+				if (input.paymentMethod) body.paymentMethod = input.paymentMethod;
+				if (input.billing) body.billing = input.billing;
+				if (input.shipping) body.shipping = input.shipping;
+
+				return client.request({
+					method: "PUT",
+					path: "hub/user/platform/CUSTOM/V1/orders/order",
+					keyName: "abonent",
+					body,
+				});
+			}),
+	);
 }
