@@ -1,9 +1,11 @@
 # ifirma-mcp-server
 
-[![npm version](https://img.shields.io/npm/v/ifirma-mcp-server.svg)](https://www.npmjs.com/package/ifirma-mcp-server)
+[![npm version](https://img.shields.io/npm/v/@noesisvision/ifirma-mcp-server.svg)](https://www.npmjs.com/package/@noesisvision/ifirma-mcp-server)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 MCP server for the [iFirma.pl](https://www.ifirma.pl) Polish accounting API. Enables AI assistants (Claude, Cursor, Windsurf) to manage invoices, expenses, contractors, and more through natural language.
+
+> **Fork notice.** Maintained by [Noesis Vision](https://github.com/NoesisVision), forked from [adriandmitroca/ifirma-mcp-server](https://github.com/adriandmitroca/ifirma-mcp-server) (MIT). It adds invoice retrieval and PDF download (from [upstream PR #1](https://github.com/adriandmitroca/ifirma-mcp-server/pull/1) by Krzysztof Ploch) and fixes domestic invoice and proforma request bodies to match the iFirma API. The fixes were verified against a live account. npm package: `@noesisvision/ifirma-mcp-server` (first release pending).
 
 ## Setup
 
@@ -16,7 +18,7 @@ claude mcp add ifirma \
   -e IFIRMA_API_KEY_EXPENSE=hex_key_wydatek \
   -e IFIRMA_API_KEY_ACCOUNT=hex_key_abonent \
   -e IFIRMA_API_KEY_RECEIPT=hex_key_rachunek \
-  -- npx -y ifirma-mcp-server
+  -- npx -y @noesisvision/ifirma-mcp-server
 ```
 
 ### Claude Desktop
@@ -28,7 +30,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
   "mcpServers": {
     "ifirma": {
       "command": "npx",
-      "args": ["-y", "ifirma-mcp-server"],
+      "args": ["-y", "@noesisvision/ifirma-mcp-server"],
       "env": {
         "IFIRMA_USERNAME": "your@email.pl",
         "IFIRMA_API_KEY_INVOICE": "hex_key_faktura",
@@ -43,7 +45,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 
 ### Other MCP clients
 
-Run via `npx -y ifirma-mcp-server` with the environment variables below.
+Run via `npx -y @noesisvision/ifirma-mcp-server` with the environment variables below.
 
 ### API Keys
 
@@ -158,7 +160,7 @@ The public iFirma API can **create** expenses but cannot **list** cost invoices.
 ## Development
 
 ```bash
-git clone https://github.com/adriandmitroca/ifirma-mcp-server.git
+git clone https://github.com/NoesisVision/ifirma-mcp-server.git
 cd ifirma-mcp-server
 npm install
 npm run dev
