@@ -16,7 +16,7 @@ jobs:
       - run: npm run build
   release:
     needs: build
-    # Publish only from the NoesisVision fork, as @noesisvision/ifirma-mcp-server
+    # Publish only from the NoesisVision fork, as @noesis-vision/ifirma-mcp-server
     if: github.repository == 'NoesisVision/ifirma-mcp-server'
     runs-on: ubuntu-latest
     permissions:

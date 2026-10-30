@@ -1,5 +1,5 @@
 {
-	"name": "@noesisvision/ifirma-mcp-server",
+	"name": "@noesis-vision/ifirma-mcp-server",
 	"version": "1.0.0",
 	"description": "MCP server for the iFirma.pl Polish accounting API",
 	"keywords": [
