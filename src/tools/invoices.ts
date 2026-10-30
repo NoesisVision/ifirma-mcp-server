@@ -31,9 +31,18 @@ export function buildInvoiceItem(item: {
 		Jednostka: item.unit,
 		TypStawkiVat: item.vatRate === -1 ? "ZW" : "PRC",
 		PKWiU: item.pkwiu || "",
-		GTU: item.gtu || "",
+		...(item.gtu && { GTU: item.gtu }),
 	};
 }
+
+/** iFirma SposobZaplaty codes (docs: wystawianie faktury sprzedaży krajowej) */
+export const PAYMENT_METHOD_CODES: Record<string, string> = {
+	przelew: "PRZ",
+	gotowka: "GTK",
+	karta: "KAR",
+	kompensata: "KOM",
+	barter: "BAR",
+};
 
 export function buildInvoiceBody(input: {
 	issueDate: string;
@@ -41,6 +50,10 @@ export function buildInvoiceBody(input: {
 	paymentDeadline: string;
 	paymentMethod: string;
 	contractorNip?: string;
+	contractorIdentifier?: string;
+	issuePlace?: string;
+	templateName?: string;
+	numberingSeries?: string;
 	contractor?: {
 		name: string;
 		nip?: string;
@@ -65,45 +78,58 @@ export function buildInvoiceBody(input: {
 	accountNumber?: string;
 }) {
 	const body: Record<string, unknown> = {
-		Zapilesz: true,
-		LiczOd: "netto",
+		Zaplacono: 0,
+		LiczOd: "NET",
 		DataWystawienia: input.issueDate,
-		MiejsceWystawienia: "",
 		DataSprzedazy: input.saleDate || input.issueDate,
 		FormatDatySprzedazy: "DZN",
 		TerminPlatnosci: input.paymentDeadline,
-		SposobZaplaty: input.paymentMethod,
-		NumerKontaBankowego: input.accountNumber || "",
+		SposobZaplaty:
+			PAYMENT_METHOD_CODES[input.paymentMethod] || input.paymentMethod,
 		RodzajPodpisuOdbiorcy: input.noSignature ? "BPO" : "OUP",
-		PodpisFaktury: "",
-		UwagiNaFakturze: input.notes || "",
-		WidocznoscNumeruGios: false,
+		WidocznyNumerGios: false,
 		Numer: null,
 		Pozycje: input.items.map(buildInvoiceItem),
-		Kontrahent: input.contractorNip
-			? {
-					Identyfikator: null,
-					NIP: input.contractorNip,
-					PrefiksUE: "",
-				}
-			: {
-					Identyfikator: null,
-					NIP: input.contractor?.nip || "",
-					Nazwa: input.contractor?.name || "",
-					Ulica: input.contractor?.street || "",
-					KodPocztowy: input.contractor?.postalCode || "",
-					Kraj: input.contractor?.country || "Polska",
-					Miejscowosc: input.contractor?.city || "",
-					Email: input.contractor?.email || "",
-					PrefiksUE: "",
-				},
 	};
 
+	if (input.issuePlace) body.MiejsceWystawienia = input.issuePlace;
+	if (input.templateName) body.NazwaSzablonu = input.templateName;
+	if (input.numberingSeries) body.NazwaSeriiNumeracji = input.numberingSeries;
+	if (input.accountNumber) body.NumerKontaBankowego = input.accountNumber;
+	if (input.notes) body.Uwagi = input.notes;
+
+	// Existing contractors are matched by top-level IdentyfikatorKontrahenta,
+	// then NIPKontrahenta; the Kontrahent object is used only when nothing matches.
+	if (input.contractorIdentifier) {
+		body.IdentyfikatorKontrahenta = input.contractorIdentifier;
+	}
+	if (input.contractorNip) body.NIPKontrahenta = input.contractorNip;
+	if (input.contractor) {
+		body.Kontrahent = {
+			Identyfikator: null,
+			NIP: input.contractor.nip || "",
+			Nazwa: input.contractor.name,
+			Ulica: input.contractor.street || "",
+			KodPocztowy: input.contractor.postalCode,
+			Kraj: input.contractor.country || "Polska",
+			Miejscowosc: input.contractor.city,
+			Email: input.contractor.email || "",
+			PrefiksUE: "",
+		};
+	}
+
 	if (input.splitPayment) {
-		body.MechanizmPodzielonejPlatnosci = true;
+		body.SplitPayment = true;
 	}
 
 	return body;
+}
+
+function setEuPrefix(body: Record<string, unknown>, euPrefix: string) {
+	body.PrefiksUEKontrahenta = euPrefix;
+	if (body.Kontrahent) {
+		(body.Kontrahent as Record<string, unknown>).PrefiksUE = euPrefix;
+	}
 }
 
 const invoiceItemSchema = z.object({
@@ -137,15 +163,39 @@ const domesticInvoiceSchema = {
 		.enum(["przelew", "gotowka", "karta", "kompensata", "barter"])
 		.default("przelew")
 		.describe("Payment method"),
+	contractorIdentifier: z
+		.string()
+		.optional()
+		.describe(
+			"Contractor identifier from iFirma DB (IdentyfikatorKontrahenta, e.g. 'ACME') — matched first",
+		),
 	contractorNip: z
 		.string()
 		.optional()
 		.describe(
-			"Contractor NIP — if provided, contractor is matched from iFirma DB",
+			"Contractor NIP — matched from iFirma DB if identifier is missing or not found",
 		),
 	contractor: contractorSchema
 		.optional()
-		.describe("Contractor details — used when contractorNip is not provided"),
+		.describe(
+			"Contractor details — used to create a new contractor when identifier/NIP match nothing",
+		),
+	issuePlace: z
+		.string()
+		.optional()
+		.describe("Place of issue (MiejsceWystawienia), e.g. 'Warszawa'"),
+	templateName: z
+		.string()
+		.optional()
+		.describe(
+			"Invoice template name (NazwaSzablonu), e.g. 'Logo'; default if omitted",
+		),
+	numberingSeries: z
+		.string()
+		.optional()
+		.describe(
+			"Numbering series name (NazwaSeriiNumeracji); default if omitted",
+		),
 	items: z.array(invoiceItemSchema).min(1).describe("Invoice line items"),
 	notes: z.string().optional().describe("Notes on the invoice"),
 	splitPayment: z
@@ -287,6 +337,15 @@ export function registerInvoiceTools(server: McpServer, client: IfirmaClient) {
 		(input) =>
 			wrapToolHandler(() => {
 				const body = buildInvoiceBody(input);
+				// Proforma has no payment/sale-date/number fields (docs: wystawianie faktury proforma)
+				for (const field of [
+					"Zaplacono",
+					"DataSprzedazy",
+					"FormatDatySprzedazy",
+					"Numer",
+				]) {
+					delete body[field];
+				}
 				body.TypFakturyKrajowej = input.domesticType;
 				if (input.orderNumber) body.NumerZamowienia = input.orderNumber;
 				return client.request({
@@ -418,7 +477,7 @@ export function registerInvoiceTools(server: McpServer, client: IfirmaClient) {
 		(input) =>
 			wrapToolHandler(() => {
 				const body = buildInvoiceBody(input);
-				(body.Kontrahent as Record<string, unknown>).PrefiksUE = input.euPrefix;
+				setEuPrefix(body, input.euPrefix);
 				return client.request({
 					method: "POST",
 					path: "fakturawdt.json",
@@ -440,7 +499,7 @@ export function registerInvoiceTools(server: McpServer, client: IfirmaClient) {
 		(input) =>
 			wrapToolHandler(() => {
 				const body = buildInvoiceBody(input);
-				(body.Kontrahent as Record<string, unknown>).PrefiksUE = input.euPrefix;
+				setEuPrefix(body, input.euPrefix);
 				return client.request({
 					method: "POST",
 					path: "fakturaunijnasluga.json",

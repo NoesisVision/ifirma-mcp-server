@@ -40,13 +40,36 @@ describe("buildInvoiceBody", () => {
 
 	it("produces correct top-level fields", () => {
 		const body = buildInvoiceBody(baseInput);
-		expect(body.Zapilesz).toBe(true);
-		expect(body.LiczOd).toBe("netto");
+		expect(body.Zaplacono).toBe(0);
+		expect(body.LiczOd).toBe("NET");
 		expect(body.DataWystawienia).toBe("2026-03-01");
 		expect(body.TerminPlatnosci).toBe("2026-03-15");
-		expect(body.SposobZaplaty).toBe("przelew");
+		expect(body.SposobZaplaty).toBe("PRZ");
 		expect(body.FormatDatySprzedazy).toBe("DZN");
+		expect(body.WidocznyNumerGios).toBe(false);
 		expect(body.Numer).toBeNull();
+	});
+
+	it("omits optional fields so iFirma account defaults apply", () => {
+		const body = buildInvoiceBody(baseInput);
+		expect(body).not.toHaveProperty("NumerKontaBankowego");
+		expect(body).not.toHaveProperty("NazwaSzablonu");
+		expect(body).not.toHaveProperty("MiejsceWystawienia");
+		expect(body).not.toHaveProperty("Uwagi");
+	});
+
+	it("passes template, series, place and notes when provided", () => {
+		const body = buildInvoiceBody({
+			...baseInput,
+			issuePlace: "Warszawa",
+			templateName: "Logo",
+			numberingSeries: "Domyślna miesięczna",
+			notes: "Okres rozliczeniowy: 09.2026",
+		});
+		expect(body.MiejsceWystawienia).toBe("Warszawa");
+		expect(body.NazwaSzablonu).toBe("Logo");
+		expect(body.NazwaSeriiNumeracji).toBe("Domyślna miesięczna");
+		expect(body.Uwagi).toBe("Okres rozliczeniowy: 09.2026");
 	});
 
 	it("defaults DataSprzedazy to issueDate when saleDate not provided", () => {
@@ -85,13 +108,18 @@ describe("buildInvoiceBody", () => {
 		expect(pozycje[0].CenaJednostkowa).toBe(200);
 	});
 
-	it("uses NIP-only contractor when contractorNip provided", () => {
+	it("matches existing contractor by top-level NIP when contractorNip provided", () => {
 		const body = buildInvoiceBody(baseInput);
-		const kontrahent = body.Kontrahent as Record<string, unknown>;
-		expect(kontrahent.NIP).toBe("1234567890");
-		expect(kontrahent.Identyfikator).toBeNull();
-		expect(kontrahent.PrefiksUE).toBe("");
-		expect(kontrahent.Nazwa).toBeUndefined();
+		expect(body.NIPKontrahenta).toBe("1234567890");
+		expect(body.Kontrahent).toBeUndefined();
+	});
+
+	it("matches existing contractor by identifier when provided", () => {
+		const body = buildInvoiceBody({
+			...baseInput,
+			contractorIdentifier: "ACME",
+		});
+		expect(body.IdentyfikatorKontrahenta).toBe("ACME");
 	});
 
 	it("uses inline contractor when contractorNip not provided", () => {
@@ -125,12 +153,12 @@ describe("buildInvoiceBody", () => {
 
 	it("adds split payment flag when enabled", () => {
 		const body = buildInvoiceBody({ ...baseInput, splitPayment: true });
-		expect(body.MechanizmPodzielonejPlatnosci).toBe(true);
+		expect(body.SplitPayment).toBe(true);
 	});
 
 	it("omits split payment flag when disabled", () => {
 		const body = buildInvoiceBody(baseInput);
-		expect(body.MechanizmPodzielonejPlatnosci).toBeUndefined();
+		expect(body.SplitPayment).toBeUndefined();
 	});
 
 	it("includes PKWiU and GTU when provided", () => {
